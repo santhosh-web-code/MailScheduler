@@ -1,0 +1,119 @@
+// Prisma Schema for ReachInbox Email Scheduler
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// -------------------------------------------------------------
+// Enums
+// -------------------------------------------------------------
+
+enum BatchStatus {
+  pending
+  in_progress
+  completed
+}
+
+enum EmailJobStatus {
+  scheduled
+  queued
+  sent
+  failed
+  rate_limited
+}
+
+// -------------------------------------------------------------
+// Models
+// -------------------------------------------------------------
+
+model User {
+  id               String            @id @default(uuid())
+  googleId         String            @unique
+  email            String            @unique
+  name             String
+  avatarUrl        String?
+  createdAt        DateTime          @default(now())
+
+  slackIntegration SlackIntegration?
+  senders          EmailSender[]
+  batches          EmailBatch[]
+
+  @@map("users")
+}
+
+model SlackIntegration {
+  id          String   @id @default(uuid())
+  userId      String   @unique
+  teamId      String
+  accessToken String   @db.Text
+  webhookUrl  String?  @db.Text
+  channelId   String?
+  connectedAt DateTime @default(now())
+  isActive    Boolean  @default(true)
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("slack_integrations")
+}
+
+model EmailSender {
+  id          String       @id @default(uuid())
+  userId      String
+  fromAddress String
+  fromName    String
+  createdAt   DateTime     @default(now())
+
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  batches     EmailBatch[]
+
+  @@index([userId])
+  @@map("email_senders")
+}
+
+model EmailBatch {
+  id                   String       @id @default(uuid())
+  userId               String
+  subject              String
+  bodyHtml             String       @db.LongText
+  startTime            DateTime
+  delayBetweenEmailsMs Int          @default(2000)
+  hourlyLimit          Int          @default(50)
+  senderId             String
+  status               BatchStatus  @default(pending)
+  createdAt            DateTime     @default(now())
+
+  user                 User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sender               EmailSender  @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  jobs                 EmailJob[]
+
+  @@index([userId])
+  @@index([senderId])
+  @@map("email_batches")
+}
+
+model EmailJob {
+  id             String         @id @default(uuid())
+  batchId        String
+  recipientEmail String
+  subject        String
+  bodyHtml       String         @db.LongText
+  status         EmailJobStatus @default(scheduled)
+  scheduledFor   DateTime
+  sentAt         DateTime?
+  bullJobId      String?        @unique
+  errorMessage   String?        @db.Text
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  batch          EmailBatch     @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@index([scheduledFor])
+  @@index([batchId])
+  @@map("email_jobs")
+}
