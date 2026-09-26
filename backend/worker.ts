@@ -33,20 +33,11 @@ console.log(`Connected to Redis: ${redisTarget}`);
 console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
 console.log('========================================================');
 
-let reconciliationTimer: NodeJS.Timeout | null = null;
-
 async function bootstrap() {
   try {
     await initElasticsearchIndex().catch(() => {});
     await reconcileQueue();
     console.log('[Worker] Startup reconciliation completed. Worker is now actively consuming jobs.\n');
-
-    // Run safe periodic reconciliation check every 60 seconds to self-heal any stalled or orphaned jobs
-    reconciliationTimer = setInterval(() => {
-      reconcileQueue().catch((err) => {
-        console.error('[Worker] Periodic queue reconciliation error:', (err as Error).message);
-      });
-    }, 60000);
   } catch (err) {
     console.error('[Worker] Startup reconciliation encountered an error:', err);
   }
@@ -56,9 +47,6 @@ bootstrap();
 
 const shutdown = async (signal: string) => {
   console.log(`\n[Worker] Received ${signal}. Gracefully closing BullMQ worker and HTTP server...`);
-  if (reconciliationTimer) {
-    clearInterval(reconciliationTimer);
-  }
   try {
     httpServer.close();
     await emailWorker.close();

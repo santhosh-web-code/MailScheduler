@@ -74,27 +74,32 @@ export async function reconcileQueue(): Promise<{
         await redisJob.remove().catch(() => {});
         shouldReenqueue = true;
       } else if (jobState === 'active') {
-        console.log(
-          `[Reconciliation] ⚠️ Stale ACTIVE job detected [${dbJob.id}] in Redis (abandoned by previous worker process). Recovering...`
-        );
-        // Release any stale Redis lock key from dead worker
+        let lockTtl = -2;
         if (dbJob.bullJobId) {
           const lockKey = `${emailQueue.toKey(dbJob.bullJobId)}:lock`;
-          await redisConnection.del(lockKey).catch(() => {});
+          lockTtl = await redisConnection.pttl(lockKey).catch(() => -2);
         }
 
-        // Remove stale active job from Redis so it can be re-enqueued clean
-        try {
-          await redisJob.remove();
-        } catch (removeErr) {
-          console.warn(
-            `[Reconciliation] Could not remove active job directly, attempting moveToFailed:`,
-            (removeErr as Error).message
+        if (lockTtl > 0) {
+          console.log(
+            `[Reconciliation] 🔒 Job [${dbJob.id}] is currently ACTIVE with an unexpired lock (TTL: ${lockTtl}ms). Leaving active worker to finish processing.`
           );
-          await redisJob.moveToFailed(new Error('Stale active job recovered on startup'), '0').catch(() => {});
-          await redisJob.remove().catch(() => {});
+          healthyInRedisCount++;
+        } else {
+          console.log(
+            `[Reconciliation] ⚠️ Stale ACTIVE job [${dbJob.id}] detected with expired/missing lock (TTL: ${lockTtl}ms). Recovering orphaned job...`
+          );
+          try {
+            await redisJob.remove();
+            shouldReenqueue = true;
+          } catch (removeErr) {
+            console.warn(
+              `[Reconciliation] Could not remove unlocked active job directly, leaving for BullMQ stalled checker:`,
+              (removeErr as Error).message
+            );
+            healthyInRedisCount++;
+          }
         }
-        shouldReenqueue = true;
       } else if (jobState === 'delayed') {
         if (isDue) {
           console.log(
