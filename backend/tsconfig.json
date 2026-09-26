@@ -12,6 +12,6 @@
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true
   },
-  "include": ["src/**/*", "worker.ts", "prisma/**/*"],
+  "include": ["src/**/*", "worker.ts", "server.ts", "prisma/**/*"],
   "exclude": ["node_modules", "dist"]
 }

@@ -6,12 +6,13 @@ import { reconcileQueue } from './src/modules/queue/reconcile';
 import { initElasticsearchIndex } from './src/modules/search/esClient';
 
 const concurrency = Number(process.env.WORKER_CONCURRENCY) || 5;
-const redisHost = process.env.REDIS_HOST || 'localhost';
-const redisPort = Number(process.env.REDIS_PORT) || 6379;
+const redisTarget = process.env.REDIS_URL
+  ? '[Configured via REDIS_URL]'
+  : `${process.env.REDIS_HOST || 'localhost'}:${process.env.REDIS_PORT || 6379}`;
 
 console.log('========================================================');
 console.log(`Worker started, listening on queue: email-send, concurrency: ${concurrency}`);
-console.log(`Connected to Redis: ${redisHost}:${redisPort}`);
+console.log(`Connected to Redis: ${redisTarget}`);
 console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
 console.log('========================================================');
 

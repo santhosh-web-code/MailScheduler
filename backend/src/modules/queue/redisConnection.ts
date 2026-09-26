@@ -1,9 +1,9 @@
 import Redis, { RedisOptions } from 'ioredis';
 import { config } from '../../config';
 
+const redisUrl = process.env.REDIS_URL || config.redis.url;
+
 const redisOptions: RedisOptions = {
-  host: config.redis.host || 'localhost',
-  port: config.redis.port || 6379,
   maxRetriesPerRequest: null, // Required by BullMQ
   enableReadyCheck: false,
   retryStrategy(times) {
@@ -12,10 +12,20 @@ const redisOptions: RedisOptions = {
   },
 };
 
-export const redisConnection = new Redis(redisOptions);
+export const redisConnection = redisUrl
+  ? new Redis(redisUrl, redisOptions)
+  : new Redis({
+      host: config.redis.host || 'localhost',
+      port: config.redis.port || 6379,
+      ...redisOptions,
+    });
 
 redisConnection.on('connect', () => {
-  console.log(`[Redis] Connected to Redis at ${config.redis.host}:${config.redis.port}`);
+  if (redisUrl) {
+    console.log('[Redis] Connected to Redis via REDIS_URL');
+  } else {
+    console.log(`[Redis] Connected to Redis at ${config.redis.host}:${config.redis.port}`);
+  }
 });
 
 redisConnection.on('error', (err) => {
