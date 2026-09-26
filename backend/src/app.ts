@@ -1,4 +1,4 @@
-import express from 'express';
+import express, { Request, Response } from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import passport from 'passport';
@@ -44,7 +44,7 @@ export const createApp = () => {
 
   app.use(passport.initialize());
 
-  app.get('/health', async (_req, res) => {
+  app.get('/health', async (_req: Request, res: Response) => {
     let dbStatus = 'ok';
     let redisStatus = 'ok';
 

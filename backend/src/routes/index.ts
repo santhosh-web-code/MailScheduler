@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, Request, Response } from 'express';
 import emailsRouter from '../modules/emails/emails.routes';
 
 import { getSlackStatus, disconnectSlack } from '../modules/slack/slack.routes';
@@ -8,7 +8,7 @@ const router = Router();
 
 router.use('/emails', emailsRouter);
 
-router.get('/senders', async (_req, res) => {
+router.get('/senders', async (_req: Request, res: Response) => {
   try {
     const { prisma } = await import('../config');
     const fromEmail = process.env.SMTP_FROM_EMAIL || 'santhoshnanisanka@gmail.com';
@@ -56,7 +56,7 @@ router.get('/senders', async (_req, res) => {
 router.get('/slack/status', requireAuth, getSlackStatus);
 router.post('/slack/disconnect', requireAuth, disconnectSlack);
 
-router.get('/ping', (_req, res) => {
+router.get('/ping', (_req: Request, res: Response) => {
   res.json({ message: 'pong' });
 });
 

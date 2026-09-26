@@ -13,5 +13,5 @@
     "resolveJsonModule": true
   },
   "include": ["src/**/*", "worker.ts", "server.ts", "prisma/**/*"],
-  "exclude": ["node_modules", "dist"]
+  "exclude": ["node_modules", "dist", "src/scripts/**/*"]
 }
