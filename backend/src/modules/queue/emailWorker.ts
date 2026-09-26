@@ -17,13 +17,10 @@ export async function processEmailJob(
   token?: string
 ): Promise<{ status: string; previewUrl?: string; processedAt: string }> {
   console.log(`\n========================================================`);
-  console.log(`[EmailWorker] [STEP 1/4] 📥 Job received [ID: ${job.id}]`);
+  console.log(`[EmailWorker] 📥 Job received: ID=${job.id}, Name=${job.name}, Recipient=${job.data.recipientEmail}, DB_ID=${job.data.jobId || 'N/A'}`);
+  console.log(`[EmailWorker] ▶️ Processing start: ID=${job.id}, Recipient=${job.data.recipientEmail}, Subject="${job.data.subject}", Attempt=${job.attemptsMade + 1}/${job.opts?.attempts || 3}`);
   console.log(`  Queue Name       : ${job.queueName}`);
-  console.log(`  Database Job ID  : ${job.data.jobId || 'N/A'}`);
-  console.log(`  Recipient        : ${job.data.recipientEmail}`);
-  console.log(`  Subject          : "${job.data.subject}"`);
   console.log(`  Scheduled For    : ${job.data.scheduledFor}`);
-  console.log(`  Attempt          : ${job.attemptsMade + 1} of ${job.opts?.attempts || 3}`);
   console.log(`  Executed At      : ${new Date().toISOString()}`);
   console.log(`========================================================\n`);
 
@@ -196,6 +193,7 @@ export async function processEmailJob(
       }
     }
 
+    console.log(`[EmailWorker] ✅ Processing success: ID=${job.id}, Recipient=${recipientEmail}, MessageId=${mailInfo.messageId}`);
     return {
       status: 'sent',
       previewUrl: previewUrl || undefined,
@@ -213,10 +211,7 @@ export async function processEmailJob(
     const errorMessage = err?.message || String(error);
 
     console.error(`\n========================================================`);
-    console.error(`[EmailWorker] ❌ [STEP 3/4 FAILED] SMTP Send Error for job ${job.id} (Attempt ${currentAttempt}/${totalAttempts})`);
-    console.error(`  Recipient    : ${job.data.recipientEmail}`);
-    console.error(`  Error Name   : ${err?.name || 'Error'}`);
-    console.error(`  Error Message: ${errorMessage}`);
+    console.error(`[EmailWorker] ❌ Processing failure: ID=${job.id}, Recipient=${job.data.recipientEmail}, Error=${errorMessage} (Attempt ${currentAttempt}/${totalAttempts})`);
     if (err?.code) console.error(`  Error Code   : ${err.code}`);
     if (err?.responseCode) console.error(`  Response Code: ${err.responseCode}`);
     if (err?.response) console.error(`  SMTP Response: ${err.response}`);
@@ -275,25 +270,58 @@ export const emailWorker = new Worker<EmailJobData>(EMAIL_QUEUE_NAME, processEma
     max: 1,
     duration: minDelayBetweenEmailsMs,
   },
+  maxStalledCount: 2, // Allow recovery before failing permanently
+  stalledInterval: 15000, // Check for stalled jobs every 15s
+  lockDuration: 30000,
 });
 
 emailWorker.on('ready', () => {
-  console.log(`Worker started, listening on queue: email-send, concurrency: ${concurrency}`);
   console.log(
     `[EmailWorker] Worker ready on queue "${EMAIL_QUEUE_NAME}" (Concurrency: ${concurrency}, Min Delay: ${minDelayBetweenEmailsMs}ms)`
   );
 });
 
-emailWorker.on('completed', (job) => {
-  console.log(`[EmailWorker] Job ${job.id} to <${job.data.recipientEmail}> successfully completed.`);
+emailWorker.on('active', (job) => {
+  console.log(
+    `[EmailWorker] ⚡ Job ACTIVE in queue: ID=${job.id}, Name=${job.name}, Recipient=${job.data.recipientEmail}, DB_ID=${job.data.jobId || 'N/A'}`
+  );
 });
 
-emailWorker.on('failed', (job, err) => {
-  console.error(`[EmailWorker] Job ${job?.id} failed with error:`, err.message);
+emailWorker.on('completed', (job) => {
+  console.log(`[EmailWorker] ✅ Job COMPLETED in queue: ID=${job.id}, Recipient=<${job.data.recipientEmail}>`);
+});
+
+emailWorker.on('failed', async (job, err) => {
+  console.error(`[EmailWorker] ❌ Job FAILED in queue: ID=${job?.id}, Error: ${err.message}`);
+
+  // Guarantee database record does not remain permanently 'queued' if failed outside processEmailJob (e.g. stalled or worker crash)
+  if (job?.data?.jobId) {
+    try {
+      await prisma.emailJob.update({
+        where: { id: job.data.jobId },
+        data: {
+          status: 'failed',
+          errorMessage: err.message || 'Job failed in BullMQ queue',
+        },
+      });
+      console.log(`[EmailWorker] Synced failed status to DB for job [${job.data.jobId}].`);
+    } catch (dbErr) {
+      console.error(
+        `[EmailWorker] Failed to sync DB status to 'failed' for job [${job?.data?.jobId}]:`,
+        (dbErr as Error).message
+      );
+    }
+  }
+});
+
+emailWorker.on('stalled', (jobId, prev) => {
+  console.warn(
+    `[EmailWorker] ⚠️ Job STALLED: ID=${jobId}, PreviousState=${prev}. Worker restarted or lock expired. BullMQ will re-queue or fail based on maxStalledCount.`
+  );
 });
 
 emailWorker.on('error', (err) => {
-  console.error('[EmailWorker] Unexpected worker error:', err);
+  console.error('[EmailWorker] 🚨 Unexpected worker error:', err);
 });
 
 export default emailWorker;
